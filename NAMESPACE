@@ -1,0 +1,13 @@
+export(priorOnE0_spec, priorOnAlpha_spec, priorOnK_spec,
+       sampleLCA, samplePoisMixture,
+       sampleMultNormMixture, sampleUniNormMixture,
+       identifyMixture, plotBubble, plotScatter)
+importFrom("grDevices", "devAskNewPage", "palette", "rainbow", "x11")
+importFrom("graphics", "axis", "boxplot", "contour", "hist", "image",
+           "mtext", "par", "persp", "points", "symbols", "title")
+importFrom("stats", "df", "dgamma", "dgeom", "dnbinom", "dpois",
+           "kmeans", "mahalanobis", "quantile", "rgamma", "rnorm",
+           "rpois", "runif")
+importFrom("extraDistr", "dbnbinom")
+importFrom("mvtnorm", "dmvnorm")
+importFrom("methods", "is")

@@ -1,0 +1,315 @@
+---
+title: Bayesian Multivariate Gaussian Mixtures with the Telescoping Sampler
+author: Gertraud Malsiner-Walli, Sylvia Frühwirth-Schnatter, Bettina Grün
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Bayesian Multivariate Gaussian Mixtures with the Telescoping Sampler}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+bibliography: telescope.bib 
+---
+
+# Introduction
+
+In this vignette we fit a Bayesian multivariate Gaussian mixture with a prior on the number of components $K$ to the thyroid data set available in the **mclust** package. We use the prior specification for model selection and the telescoping sampler to perform MCMC sampling as used in @Fruehwirth-Schnatter+Malsiner-Walli+Gruen:2021.
+
+First, we load the package.
+
+```{r}
+library("telescope")
+```
+
+# The thyroid data set
+
+We load the data set from package **mclust** and extract the variables
+for clustering omitting the variable indicating the known
+classification available in column named `"Diagnosis"`.
+
+```{r}
+data("thyroid", package = "mclust")
+y <- as.matrix(thyroid[, 2:6])
+z <- thyroid$Diagnosis
+```
+
+We extract the dimension of the data set and indicate the distribution of the known classification.
+```{r}
+r <- ncol(y)
+N <- nrow(y)
+table(z)
+```
+
+
+```{r, fig.width=7, fig.height=8}
+pairs(y, col = z)
+```
+
+# Model specification
+
+For  multivariate observations $\mathbf{y}_1,\ldots,\mathbf{y}_N$  the following model with hierachical prior structure is assumed:
+
+\begin{aligned}
+\mathbf{y}_i \sim \sum_{k=1}^K \eta_k f_N(\boldsymbol{\mu}_k,\boldsymbol{\Sigma_k})&\\
+K \sim p(K)&\\
+\boldsymbol{\eta} \sim Dir(e_0)& \qquad \text{with } e_0 \text{ fixed, } e_0\sim p(e_0) \text {, or } e_0=\frac{\alpha}{K}, \text{ with }   \alpha \text{ fixed or } \alpha \sim p(\alpha),\\
+\boldsymbol{\mu}_k\sim N(\mathbf{b}_0,\mathbf{B}_0)\\
+\boldsymbol{\Sigma} \sim \mathcal{W}^{-1}(c_0,\mathbf{C}_0)&  \qquad \text{with }E(\boldsymbol{\Sigma}) =\mathbf{C}_0/(c_0-(r+1)/2),\\
+\mathbf{C}_0 \sim \mathcal{W}(g_0,\mathbf{G}_0)& \qquad \text{with }E(\mathbf{C}_0) = g_0 \mathbf{G}_0^{-1}.
+\end{aligned}
+
+# Specification of the simulation and prior parameters 
+
+For MCMC sampling we need to specify `Mmax`, the maximum number of iterations, `thin`, the thinning imposed to reduce auto-correlation in the chain by only recording every `thin`ed observation, and `burnin`, the number of burn-in iterations not recorded.
+
+```{r}
+Mmax <- 5000
+thin <- 10
+burnin <- 100
+```
+
+The specifications of `Mmax` and `thin` imply `M`, the number of recorded observations.
+
+```{r}
+M <- Mmax/thin
+```
+
+For MCMC sampling, we need to specify `Kmax`, the maximum number of components possible during sampling, and `Kinit`, the initial number of filled components.
+
+```{r}
+Kmax <- 50  
+Kinit <- 10
+```
+
+We use a static specification for the weights with a gamma prior G(1, 20) on $e_0$.
+
+```{r}
+G <- "MixStatic"      
+priorOnE0 <- priorOnE0_spec("G_1_20", 1)
+```
+
+We need to select the prior on `K`. We use the prior $K-1 \sim BNB(1, 4, 3)$ as suggested in @Fruehwirth-Schnatter+Malsiner-Walli+Gruen:2021 for a model-based clustering context.
+
+
+```{r}
+priorOnK <- priorOnK_spec("BNB_143")
+```
+
+We select the hyperparameters for the priors on the component specific parameters as in @Fruehwirth-Schnatter+Malsiner-Walli+Gruen:2021. 
+
+```{r}
+R <- apply(y, 2, function(x) diff(range(x)))
+b0 <- apply(y, 2, median)
+B_0 <- rep(1, r)  
+B0 <- diag((R^2) * B_0)
+c0 <- 2.5 + (r-1)/2
+g0 <- 0.5 + (r-1)/2
+G0 <- 100 * g0/c0 * diag((1/R^2), nrow = r)
+C0 <- g0 * chol2inv(chol(G0))
+```
+
+We use `kmeans()` with the specified initial number of filled components `Kinit` to determine an initial partition $S_0$ of the observations as well as initial values for the component-specific means $\mu_0$.
+
+```{r}
+set.seed(1234)
+cl_y <- kmeans(y, centers = Kinit, nstart = 100, iter.max = 30)
+S_0 <- cl_y$cluster
+mu_0 <- t(cl_y$centers)
+```
+
+The component sizes are initially set to be equal and the component-specific variance-covariance matrices are diagonal matrices with half the value of `C0` in the diagonal.
+
+```{r}
+eta_0 <- rep(1/Kinit, Kinit)
+Sigma_0 <- array(0, dim = c(r, r, Kinit))
+Sigma_0[, , 1:Kinit] <- 0.5 * C0
+```
+
+# MCMC sampling
+
+Using this prior specification as well as initialization and MCMC settings, we draw samples from the posterior using the telescoping sampler. 
+
+The first argument of the sampling function is the data followed by the initial partition and the initial parameter values for component-specific means, variances and sizes. The next set of arguments correspond to the hyperparameters of the prior setup (`c0`, `g0`, `G0`, `C0`, `b0`, `B0`). Then the setting for the MCMC sampling are specified using `M`, `burnin`, `thin` and `Kmax`. Finally the prior specification for the weights and the prior on the number of components are given (`G`, `priorOnK`, `priorOnE0`).
+
+```{r}
+estGibbs <- sampleMultNormMixture(
+    y, S_0, mu_0, Sigma_0, eta_0,
+    c0, g0, G0, C0, b0, B0,
+    M, burnin, thin, Kmax,
+    G, priorOnK, priorOnE0)
+```
+
+The sampling function returns a named list where the sampled parameters and latent variables are contained. The list includes the component means `Mu`, the weights `Eta`, the assignments `S`, the number of observations  `Nk` assigned to components, the number of components `K`, the number of filled components `Kplus`, parameter values corresponding to the mode of the nonnormalized posterior `nonnormpost_mode_list`, the acceptance rate in the Metropolis-Hastings step when sampling $\alpha$ or $e_0$,  $\alpha$ and $e_0$. These values can be extracted for post-processing.
+
+```{r}
+Mu <- estGibbs$Mu
+Eta <- estGibbs$Eta
+S <- estGibbs$S
+Nk <- estGibbs$Nk
+K <- estGibbs$K
+Kplus <- estGibbs$Kplus
+nonnormpost_mode_list <- estGibbs$nonnormpost_mode_list
+acc <- estGibbs$acc
+e0 <- estGibbs$e0
+alpha <- estGibbs$alpha
+```
+  
+# Convergence diagnostics of the run
+
+We inspect the acceptance rate when sampling $e_0$ and the trace plot of the sampled $e_0$:
+
+```{r fig.height = 5, fig.width = 7}
+sum(acc)/M 
+plot(1:length(e0), e0,
+     type = "l", ylim = c(0, max(e0)),
+     xlab = "iterations", ylab = "e0")
+```
+
+We also inspect the distribution using a histogram as well as by determining some quantiles:
+```{r fig.height = 5, fig.width = 7}
+hist(e0, freq = FALSE, breaks = 50)
+quantile(e0, probs = c(0.25, 0.5, 0.75))
+```
+
+To further assess convergence, we also inspect the trace plots for the number of components $K$ and the number of filled components $K_+$.
+
+```{r fig.height = 5, fig.width = 7}
+plot(seq_along(K), K, type = "l", ylim = c(0, 30),  
+     xlab = "iteration", main = "",
+     ylab = expression("K" ~ "/" ~ K["+"]),
+     lwd = 0.5, col = "grey")
+lines(seq_along(Kplus), Kplus, col = "red3", lwd = 2, lty = 1)
+legend("topright", legend=c("K", "K_+"), col=c("grey", "red3"),lwd = 2)
+```
+
+# Identification of the mixture model 
+
+## Step 1: Estimating $K_+$ and $K$
+  
+We determine the posterior distribution of the number of filled components $K_+$, approximated using the telescoping sampler.
+We visualize the distribution using a barplot.
+
+```{r fig.height = 5, fig.width = 7}
+Kplus <- rowSums(Nk != 0, na.rm = TRUE)  
+p_Kplus <- tabulate(Kplus, nbins = max(Kplus))/M 
+quantile(Kplus, probs = c(0.25, 0.5, 0.75))
+barplot(p_Kplus/sum(p_Kplus), xlab = expression(K["+"]), names = 1:length(p_Kplus),
+        col = "red3", ylab = expression("p(" ~ K["+"] ~ "|" ~ bold(y) ~ ")"))
+```
+
+The distribution is also characterized using the 1st and 3rd quartile as well as the median.
+
+```{r}
+quantile(Kplus, probs = c(0.25, 0.5, 0.75))
+```
+
+We obtain a point estimate for $K_+$ by taking the mode and determine the number of MCMC draws where exactly $K_+$ components were filled.
+
+```{r}
+Kplus_hat <- which.max(p_Kplus)
+Kplus_hat
+M0 <- sum(Kplus == Kplus_hat)
+M0          
+```
+
+We also determine the posterior distribution of the number of components $K$ directly drawn using the telescoping sampler.
+
+```{r}
+p_K <- tabulate(K, nbins = max(K))/M
+quantile(K, probs = c(0.25, 0.5, 0.75))
+```
+
+```{r fig.height = 5, fig.width = 7}
+barplot(p_K/sum(p_K), names = 1:length(p_K), xlab = "K", 
+        ylab = expression("p(" ~ K ~ "|" ~ bold(y) ~ ")"))
+which.max(tabulate(K, nbins = max(K)))   
+```
+
+## Step 2: Extracting the draws with exactly $\hat{K}_+$ non-empty components
+
+First we select those draws where the number of non-empty groups was exactly $\hat{K}_+$:
+
+```{r}
+index <- Kplus == Kplus_hat
+Nk[is.na(Nk)] <- 0
+Nk_Kplus <- (Nk[index, ] > 0)
+```
+
+In the following we extract the cluster means, data cluster sizes and cluster assignments for the draws where exactly $\hat{K}_+$ components were filled.
+
+```{r}
+Mu_inter <- Mu[index, , , drop = FALSE]
+Mu_Kplus <- array(0, dim = c(M0, r, Kplus_hat)) 
+for (j in 1:r) {
+  Mu_Kplus[, j, ] <- Mu_inter[, j, ][Nk_Kplus]
+}
+
+Eta_inter <- Eta[index, ]
+Eta_Kplus <- matrix(Eta_inter[Nk_Kplus], ncol = Kplus_hat)
+Eta_Kplus <- sweep(Eta_Kplus, 1, rowSums(Eta_Kplus), "/")
+
+w <- which(index)
+S_Kplus <- matrix(0, M0, N)
+for (i in seq_along(w)) {
+    m <- w[i]
+    perm_S <- rep(0, Kmax)
+    perm_S[Nk[m, ] != 0] <- 1:Kplus_hat
+    S_Kplus[i, ] <- perm_S[S[m, ]]
+}
+```
+
+## Step 3: Clustering and relabeling of the MCMC draws in the point process representation
+
+For model identification, we cluster the draws of the means where exactly $\hat{K}_+$ components were filled in the point process representation using $k$-means clustering. 
+
+```{r} 
+Func_init <- t(nonnormpost_mode_list[[Kplus_hat]]$mu)
+identified_Kplus <- identifyMixture(
+    Mu_Kplus, Mu_Kplus, Eta_Kplus, S_Kplus, Func_init)
+```
+
+We inspect the non-permutation rate to assess how well separated the data clusters are and thus how easily one can obtain a suitable relabeling of the draws. Low values of the non-permutation rate, i.e., close to zero, indicate that the solution can be easily identified pointing to a good clustering solution being obtained. 
+
+```{r}
+identified_Kplus$non_perm_rate
+```
+
+## Step 4: Estimating data cluster specific parameters and determining the final partition 
+
+The relabeled draws are also returned which can be used to determine posterior mean values for data cluster specific parameters.
+
+```{r}
+colMeans(identified_Kplus$Mu)
+colMeans(identified_Kplus$Eta)
+```
+
+A final partition is also obtained based on the relabeled cluster assignments by assigning each observation to the cluster it has been assigned most often during sampling.
+
+```{r}
+z_sp <- apply(identified_Kplus$S, 2,
+              function(x) which.max(tabulate(x, Kplus_hat)))
+table(z_sp)
+```
+
+The final partition can also be compared to the known classification.
+
+```{r}
+table(z, z_sp)
+library("mclust")
+classError(z_sp, z)$errorRate
+adjustedRandIndex(z, z_sp)
+```
+
+## Step 5: Visualizing the estimated classification
+
+We include the information on the partition obtained in pairwise
+scatter plots of the varaibles used for clustering. 
+
+```{r, fig.width=7, fig.height=8}
+plotScatter(y, z_sp, label = "y", trim = 0)
+```
+
+# References
+
+
+
+
+

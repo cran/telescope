@@ -1,0 +1,298 @@
+---
+title: Bayesian Univariate Gaussian Mixtures with the Telescoping Sampler
+author: Gertraud Malsiner-Walli, Sylvia Frühwirth-Schnatter, Bettina Grün
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Bayesian Univariate Gaussian Mixtures with the Telescoping Sampler}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+bibliography: telescope.bib 
+---
+
+# Introduction
+
+In this vignette we fit a Bayesian univariate Gaussian mixture with a prior on the number of components $K$ to the Galaxy data set. We use the prior specification and the telescoping sampler for performing MCMC sampling as proposed in @Fruehwirth-Schnatter+Malsiner-Walli+Gruen:2021. The Galaxy data set has already been used in @Richardson+Green:1997 for fitting a Bayesian mixture with an unknown number of components, exploiting that for certain prior specifications the posterior for the number of components as well as data clusters in the data set is rather dispersed. More results on the analysis of the Galaxy data set using Bayesian mixtures of univariate Gaussian distributions are provided in @Gruen+Malsiner-Walli+Fruehwirth-Schnatter:2022.
+
+First, we load the package.
+
+```{r}
+library("telescope")
+```
+
+# The Galaxy data set
+
+The Galaxy data set is quite small. We directly insert the values into R. 
+
+```{r}
+y <- c( 9.172,  9.350,  9.483,  9.558,  9.775, 10.227,
+       10.406, 16.084, 16.170, 18.419, 18.552, 18.600,
+       18.927, 19.052, 19.070, 19.330, 19.343, 19.349,
+       19.440, 19.473, 19.529, 19.541, 19.547, 19.663,
+       19.846, 19.856, 19.863, 19.914, 19.918, 19.973,
+       19.989, 20.166, 20.175, 20.179, 20.196, 20.215,
+       20.221, 20.415, 20.629, 20.795, 20.821, 20.846,
+       20.875, 20.986, 21.137, 21.492, 21.701, 21.814,
+       21.921, 21.960, 22.185, 22.209, 22.242, 22.249,
+       22.314, 22.374, 22.495, 22.746, 22.747, 22.888,
+       22.914, 23.206, 23.241, 23.263, 23.484, 23.538,
+       23.542, 23.666, 23.706, 23.711, 24.129, 24.285,
+       24.289, 24.368, 24.717, 24.990, 25.633, 26.960,
+       26.995, 32.065, 32.789, 34.279)
+N <- length(y)
+```
+
+The data is visualized in a histogram, indicating multi-modality in the distribution but also some ambiguity about the number of modes.
+
+```{r fig.height = 5, fig.width = 7}
+hist(y, breaks = 50, main = "", col = "lightgray")   
+```
+
+# Model specification
+
+For univariate observations  $y_1,\ldots,y_N$ the following model with hierarchical prior structure  is assumed:
+
+\begin{aligned}
+y_i \sim \sum_{k=1}^K \eta_k f_N(\mu_k,\sigma_k^2)&\\
+K \sim p(K)&\\
+\boldsymbol{\eta} \sim Dir(e_0)&, \qquad \text{with } e_0 \text{ fixed, } e_0\sim p(e_0) \text {, or } e_0=\frac{\alpha}{K}, \text{ with }   \alpha \text{ fixed or } \alpha \sim p(\alpha),\\
+\mu_k\sim N(b_0,B_0)\\
+\sigma_k^2 \sim \mathcal{G}^{-1}(c_0,C_0)&  \qquad \text{with }E(\sigma_k^2) = C_0/(c_0-1),\\
+C_0 \sim \mathcal{G}(g_0,G_0)& \qquad \text{with }E(C_0) = g_0/G_0.
+\end{aligned}
+
+
+# Specification of the MCMC simulation and prior parameters 
+
+For MCMC sampling we need to specify `Mmax`, the maximum number of iterations, `thin`, the thinning imposed to reduce auto-correlation in the chain by only recording every `thin`ed observation, and `burnin`, the number of burn-in iterations not recorded.
+
+```{r}
+Mmax <- 10000
+thin <- 1
+burnin <- 100
+```
+
+The specifications of `Mmax` and `thin` imply `M`, the number of recorded observations.
+
+```{r}
+M <- Mmax/thin
+```
+
+For MCMC sampling, we need to specify `Kmax`, the maximum number of components possible during sampling, and `Kinit`, the initial number of filled components.
+
+```{r}
+Kmax <- 50  
+Kinit <- 10
+```
+
+We use a static specification for the weights with a fixed prior on $e_0$ where the value is set to 1.
+
+```{r}
+G <- "MixStatic" 
+priorOnE0 <- priorOnE0_spec("e0const", 1)
+```
+
+We need to select the prior on `K`. We use the uniform prior on [1, 30] as also previously used in @Richardson+Green:1997.
+
+```{r}
+priorOnK <- priorOnK_spec("Unif", 30)
+```
+
+We specify the component-specific priors on $\mu_k$ and $\sigma_k^2$ following @Richardson+Green:1997.
+
+```{r}
+r <- 1    # dimension
+R <- diff(range(y))
+c0 <- 2 + (r-1)/2
+C0 <- diag(c(0.02*(R^2)), nrow = r)
+g0 <- 0.2 + (r-1) / 2
+G0 <- diag(10/(R^2), nrow = r)
+B0 <- diag((R^2), nrow = r)
+b0 <- as.matrix((max(y) + min(y))/2, ncol = 1)  
+```
+
+To start the MCMC sampling an initial partition of the data as well as initial parameter values need to be provided. We use `kmeans()` to determine the initial partition $S_0$ as well as the initial component-specific means $\mu_0$.
+ 
+```{r}
+set.seed(1234)
+cl_y <- kmeans(y, centers = Kinit, nstart = 30)
+S_0 <- cl_y$cluster
+mu_0 <- t(cl_y$centers)
+```
+
+For the further parameters we use initial values corresponding to equal component sizes and half of the value of `C0` for the variances.
+
+Initial values for parameters:
+```{r}
+eta_0 <- rep(1/Kinit, Kinit)
+sigma2_0 <- array(0, dim = c(1, 1, Kinit))
+sigma2_0[1, 1, ] <- 0.5 * C0
+```
+
+# MCMC sampling
+
+Using this prior specification as well as initialization and MCMC settings, we draw samples from the posterior using the telescoping sampler. 
+
+The first argument of the sampling function is the data followed by the initial partition and the initial parameter values for component-specific means, variances and sizes. The next set of arguments correspond to the hyperparameters of the prior setup (`c0`, `g0`, `G0`, `C0`, `b0`, `B0`). Then, the setting for the MCMC sampling are specified using `M`, `burnin`, `thin` and `Kmax`. Finally the prior specification for the weights and the prior on the number of components are given (`G`, `priorOnK`, `priorOnE0`).
+
+```{r}
+estGibbs <- sampleUniNormMixture(
+    y, S_0, mu_0, sigma2_0, eta_0,
+    c0, g0, G0, C0, b0, B0, 
+    M, burnin, thin, Kmax,
+    G, priorOnK, priorOnE0)
+```
+
+The sampling function returns a named list where the sampled parameters and latent variables are contained. The list includes the component means `Mu`, the weights `Eta`, the assignments `S`, the number of observations  `Nk` assigned to components, the number of components `K`, the number of filled components `Kplus`, parameter values corresponding to the mode of the nonnormalized posterior `nonnormpost_mode_list`, the acceptance rate in the Metropolis-Hastings step when sampling $\alpha$ or $e_0$,  $\alpha$ and $e_0$. These values can be extracted for post-processing.
+
+```{r}
+Mu <- estGibbs$Mu
+Eta <- estGibbs$Eta
+S <- estGibbs$S
+Nk <- estGibbs$Nk
+K <- estGibbs$K
+Kplus <- estGibbs$Kplus  
+nonnormpost_mode_list <- estGibbs$nonnormpost_mode_list
+acc <- estGibbs$acc
+e0 <- estGibbs$e0
+alpha <- estGibbs$alpha  
+```                                              
+
+# Convergence diagnostics of the run
+
+There is no need to inspect the hyperparameters for the weight distribution as a fixed value has been specified for `e0`.
+To assess convergence, we inspect the trace plots for the number of components $K$ and the number of filled components $K_+$.
+
+```{r fig.height = 5, fig.width = 7}
+plot(seq_along(K), K, type = "l", ylim = c(0, 30),  
+     xlab = "iteration", main = "",
+     ylab = expression("K" ~ "/" ~ K["+"]),
+     lwd = 0.5, col = "grey")
+lines(seq_along(Kplus), Kplus, col = "red3", lwd = 2, lty = 1)
+legend("topright", legend = c("K", "K+"),
+       col = c("grey", "red3"), lwd = 2)
+```
+
+# Identification of the mixture model 
+
+## Step 1: Estimating $K_+$ and $K$
+
+We determine the posterior distribution of the number of filled components $K_+$ approximated using the telescoping sampler.
+We visualize the distribution using a barplot.
+
+```{r fig.height = 5, fig.width = 7}
+Kplus <- rowSums(Nk != 0, na.rm = TRUE)  
+p_Kplus <- tabulate(Kplus, nbins = max(Kplus))/M  
+barplot(p_Kplus/sum(p_Kplus), names = 1:length(p_Kplus), 
+        col = "red3", xlab = expression(K["+"]),
+        ylab = expression("p(" ~ K["+"] ~ "|" ~ bold(y) ~ ")"))
+```
+
+The distribution of $K_+$ is also characterized using the 1st and 3rd quartile as well as the median.
+
+```{r}
+quantile(Kplus, probs = c(0.25, 0.5, 0.75))
+```
+
+We obtain a point estimate for $K_+$ by taking the mode and determine the number of MCMC draws where exactly $K_+$ components were filled.
+
+```{r}
+Kplus_hat <- which.max(p_Kplus)
+Kplus_hat
+M0 <- sum(Kplus == Kplus_hat)
+M0          
+```
+
+We also determine the posterior distribution of the number of components $K$ directly drawn using the telescoping sampler.
+
+```{r}
+p_K <- tabulate(K, nbins = max(K, na.rm = TRUE))/M
+round(p_K[1:20], digits = 2)
+```
+
+```{r fig.height = 5, fig.width = 7}
+barplot(p_K/sum(p_K), names = 1:length(p_K), xlab = "K", 
+        ylab = expression("p(" ~ K ~ "|" ~ bold(y) ~ ")"))
+```
+
+Again the posterior mode can be determined as well as the posterior mean and quantiles of the posterior.
+
+```{r}
+which.max(tabulate(K, nbins = max(K)))
+mean(K)
+quantile(K, probs = c(0.25, 0.5, 0.75))
+```
+
+For the prior specification used, clearly the posterior distributions for $K_+$ and $K$ indicate that the posterior weight is quite dispersed over a larger range of values. 
+
+## Step 2: Extracting the draws with exactly $\hat{K}_+$ non-empty components
+
+First we select those draws where the number of filled components was exactly $\hat{K}_+$:
+
+```{r}
+index <- Kplus == Kplus_hat
+Nk[is.na(Nk)] <- 0
+Nk_Kplus <- (Nk[index, ] > 0)
+```
+
+In the following we extract the cluster means, data cluster sizes and cluster assignments for the draws where exactly $\hat{K}_+$ components were filled.
+
+```{r}
+Mu_inter <- Mu[index, , , drop = FALSE]
+Mu_Kplus <- array(0, dim = c(M0, 1, Kplus_hat)) 
+Mu_Kplus[, 1, ] <- Mu_inter[, 1, ][Nk_Kplus]
+
+Eta_inter <- Eta[index, ]
+Eta_Kplus <- matrix(Eta_inter[Nk_Kplus], ncol = Kplus_hat)
+Eta_Kplus <- sweep(Eta_Kplus, 1, rowSums(Eta_Kplus), "/")
+
+w <- which(index)
+S_Kplus <- matrix(0, M0, length(y))
+for (i in seq_along(w)) {
+    m <- w[i]
+    perm_S <- rep(0, Kmax)
+    perm_S[Nk[m, ] != 0] <- 1:Kplus_hat
+    S_Kplus[i, ] <- perm_S[S[m, ]]
+}
+```
+
+## Step 3: Clustering and relabeling of the MCMC draws in the point process representation
+
+For model identification, we cluster the draws of the means where exactly $\hat{K}_+$ components were filled in the point process representation using $k$-means clustering. 
+
+```{r}
+Func_init <- nonnormpost_mode_list[[Kplus_hat]]$mu  
+identified_Kplus <- identifyMixture(
+    Mu_Kplus, Mu_Kplus, Eta_Kplus, S_Kplus, Func_init)
+```
+
+A named list is returned which contains the proportion of draws where the clustering did not result in a permutation and hence no relabeling could be performed and the draws had to be omitted.
+
+```{r}
+identified_Kplus$non_perm_rate
+```
+
+## Step 4: Estimating data cluster specific parameters and determing the final partition 
+
+The relabeled draws are also returned which can be used to determine posterior mean values for data cluster specific parameters.
+
+```{r}
+colMeans(identified_Kplus$Mu)
+colMeans(identified_Kplus$Eta)
+```
+
+A final partition is  obtained based on the relabeled cluster assignments by assigning each observation to the cluster it has been assigned most often during sampling.
+
+```{r}
+z_sp <- apply(identified_Kplus$S, 2,
+              function(x) which.max(tabulate(x, Kplus_hat)))
+table(z_sp)
+```
+
+## Step 5: Visualizing the estimated classification
+
+```{r fig.height = 5, fig.width = 7}
+hist(y, breaks = 50)
+points(cbind(y, rep(0, N)), col = z_sp, lwd = 2)
+```
+
+# References
