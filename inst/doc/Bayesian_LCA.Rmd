@@ -143,7 +143,7 @@ result <- sampleLCA(
     G, priorOnK, priorOnAlpha)
 ```
 
-The sampling function returns a named list where the sampled parameters and latent variables are contained. The list includes the component-specific success probabilities `Pi`, the weights `Eta`, the assignments `S`, the number of observations  `Nk` assigned to components, the number of components `K`, the number of filled components `Kplus`, parameter values corresponding to the mode of the nonnormalized posterior `nonnormpost_mode_list`, the acceptance rate in the Metropolis-Hastings step when sampling $\alpha$ or $e_0$,  $\alpha$ and $e_0$. These values can be extracted for post-processing.
+The sampling function returns a named list where the sampled parameters and latent variables are contained. The list includes the component-specific success probabilities `Pi`, the weights `Eta`, the assignments `S`, the number of observations  `Nk` assigned to components, the number of components `K`, the number of filled components `Kplus`, parameter values corresponding to the mode of the nonnormalized posterior `nonnormpost_mode`, the acceptance rate in the Metropolis-Hastings step when sampling $\alpha$ or $e_0$,  $\alpha$ and $e_0$. These values can be extracted for post-processing.
 ```{r}
 Eta <- result$Eta
 Pi <- result$Pi
@@ -151,7 +151,7 @@ Nk <- result$Nk
 S <- result$S
 K <- result$K
 Kplus <- result$Kplus   
-nonnormpost_mode_list <- result$nonnormpost_mode_list
+nonnormpost_mode <- result$nonnormpost_mode
 e0 <- result$e0
 alpha <- result$alpha
 acc <- result$acc
@@ -282,7 +282,7 @@ for (i in seq_along(w)) {
 
 For model identification, we cluster the draws of the success probabilities where exactly $\hat{K}_+$ components were filled in the point process representation using $k$-means clustering. 
 ```{r}
-Func_init <- nonnormpost_mode_list[[Kplus_hat]]$pi
+Func_init <- nonnormpost_mode[[Kplus_hat]]$pi
 identified_Kplus <- identifyMixture(
     Pi_Kplus, Pi_Kplus, Eta_Kplus, S_Kplus, Func_init)
 ```

@@ -1,15 +1,17 @@
-#' Solve label switching and identify mixture.
+#' Solve label switching and identify mixture for a mixture of LCA models. 
 #'
 #' @description Clustering of the draws in the point process representation (PPR) using
 #'   \eqn{k}-means clustering.
 #' @param Func A numeric array of dimension \eqn{M \times d \times K}; data for clustering in the PPR.
 #' @param Mu A numeric array of dimension \eqn{M \times r \times K}; draws of cluster means.
 #' @param Eta A numeric array of dimension \eqn{M \times K}; draws of cluster sizes.
+#' @param Phi A numeric array of dimension \eqn{M \times K \times r}; draws of precisions.
 #' @param S A numeric matrix of dimension \eqn{M \times N}; draws of cluster assignments. 
 #' @param centers An integer or a numeric matrix of dimension \eqn{K \times d}; used to initialize [stats::kmeans()].
 #' @return A named list containing:
 #'  * `"S"`: reordered assignments.
 #'  * `"Mu"`: reordered Mu matrix.
+#'  * `"Phi"`: reordered Phi matrix. 
 #'  * `"Eta"`: reordered weights.
 #'  * `"non_perm_rate"`: proportion of draws where the clustering did not
 #'    result in a permutation and hence no relabeling could be
@@ -39,12 +41,12 @@
 #'   indication of a poor clustering solution, as the
 #'   functionals are not clearly separated.
 #'
-identifyMixture <- function(Func, Mu, Eta, S, centers) {
+identifyLCAMixture <- function(Func, Mu, Phi, Eta, S, centers) {
 
-    K <- length(Func[1, 1, ])
+    K <- length(Func[1, , 1])
     M <- length(Func[, 1, 1])
-    d <- length(Func[1, , 1])
-    r <- length(Mu[1, , 1])
+    d <- length(Func[1, 1, ])
+    r <- length(Phi[1, 1, ])
     N <- length(S[1, ])
     
     ##---------------------- step 1
@@ -52,7 +54,7 @@ identifyMixture <- function(Func, Mu, Eta, S, centers) {
     ## created, by putting the draws of the different clusters below
     ## each other
 
-    KM <- do.call("rbind", lapply(1:K, function(k) matrix(Func[, , k, drop = TRUE], ncol = d)))
+    KM <- do.call("rbind", lapply(1:K, function(k) matrix(Func[, k, , drop = TRUE], ncol = d)))
     colnames(KM) <- paste0("func", 1:d)
 
     ##---------------------- step 2
@@ -86,12 +88,14 @@ identifyMixture <- function(Func, Mu, Eta, S, centers) {
     ## Reordering of the draws of Mu, Eta and S using the matrix
     ## Rho_m.  In this way, for the permutations, a unique labeling is
     ## achieved.
-    Mu_reord <- array(0, dim = c(M, r, K))
+    Mu_reord <- array(0, dim = c(M, K, d))
+    Phi_reord <- array(0, dim = c(M, K, r))
     Eta_reord <- matrix(0, M, K)
     S_reord <- matrix(0, M, N)
     
     for (m in 1:M) {
-        Mu_reord[m, , Rho_m[m, ]] <- Mu[m, , ]
+        Mu_reord[m,  Rho_m[m, ],] <- Mu[m, , ]
+        Phi_reord[m,  Rho_m[m, ],] <- Phi[m, , ]
         Eta_reord[m, Rho_m[m, ]] <- Eta[m, ]
         S_reord[m, ] <- Rho_m[m, ][S[m, ]] 
     }
@@ -99,11 +103,13 @@ identifyMixture <- function(Func, Mu, Eta, S, centers) {
     ##---------------------- step 5
     ## Finally, drop draws which are not permutations:
     Mu_only_perm <- Mu_reord[setdiff(1:M, m_rho), , ]  # will discard any duplicated values from 1:M, i.e values of m_rho
+    Phi_only_perm <- Phi_reord[setdiff(1:M, m_rho), , ]
     Eta_only_perm <- Eta_reord[setdiff(1:M, m_rho), ]
     S_only_perm <- S_reord[setdiff(1:M, m_rho), ]
     
     return(list(S = S_only_perm,
                 Mu = Mu_only_perm,
+                Phi = Phi_only_perm,
                 Eta = Eta_only_perm,
                 non_perm_rate = non_perm_rate))
 }

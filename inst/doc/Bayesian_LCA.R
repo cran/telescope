@@ -74,7 +74,7 @@ Nk <- result$Nk
 S <- result$S
 K <- result$K
 Kplus <- result$Kplus   
-nonnormpost_mode_list <- result$nonnormpost_mode_list
+nonnormpost_mode <- result$nonnormpost_mode
 e0 <- result$e0
 alpha <- result$alpha
 acc <- result$acc
@@ -160,7 +160,7 @@ for (i in seq_along(w)) {
 }
 
 ## -----------------------------------------------------------------------------
-Func_init <- nonnormpost_mode_list[[Kplus_hat]]$pi
+Func_init <- nonnormpost_mode[[Kplus_hat]]$pi
 identified_Kplus <- identifyMixture(
     Pi_Kplus, Pi_Kplus, Eta_Kplus, S_Kplus, Func_init)
 

@@ -78,6 +78,7 @@ results should be printed.}
 A named list containing:
 \itemize{
 \item \code{"Mu"}: sampled component means.
+\item \code{"Sigma2"}: sampled component component variances.
 \item \code{"Eta"}: sampled weights.
 \item \code{"S"}: sampled assignments.
 \item \code{"Nk"}: number of observations assigned to the different components, for each iteration.
@@ -105,10 +106,9 @@ if (requireNamespace("mclust", quietly = TRUE)) {
     N <- length(y)
     r <- 1
     
-    Mmax <- 200
+    M <- 200
     thin <- 1
     burnin <- 100
-    M <- Mmax/thin
     Kmax <- 50  
     Kinit <- 10
     
@@ -140,10 +140,10 @@ if (requireNamespace("mclust", quietly = TRUE)) {
     K <- result$K
     Kplus <- result$Kplus  
     
-    plot(seq_along(K), K, type = "l", ylim = c(0, max(K)),
+    plot(K, type = "l", ylim = c(0, max(K)),
          xlab = "iteration", main = "",
          ylab = expression("K" ~ "/" ~ K["+"]), col = 1)
-    lines(seq_along(Kplus), Kplus, col = 2)
+    lines(Kplus, col = 2)
     legend("topright", legend = c("K", expression(K["+"])),
            col = 1:2, lty = 1, box.lwd = 0)
 }

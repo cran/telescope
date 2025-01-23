@@ -1,0 +1,21 @@
+bibentry("Manual",
+         other = unlist(citation(auto = meta), recursive = FALSE))
+
+bibentry("Article",
+         title = "Generalized Mixtures of Finite Mixtures and Telescoping Sampling",
+         author =
+           c(person("Sylvia", "Frühwirth-Schnatter", 
+	            comment = c(ORCID = "0000-0003-0516-5552")),
+             person("Gertraud", "Malsiner-Walli", 
+                    email = "Gertraud.Malsiner-Walli@wu.ac.at",
+		    comment = c(ORCID = "0000-0002-1213-4749")),
+             person("Bettina", "Grün", 
+	            comment = c(ORCID = "0000-0001-7265-4773"))
+             ),
+         journal = "Bayesian Analysis",
+         year = "2021",
+         volume = "16",
+         number = "4",
+         pages = "1279--1307",
+         doi = "10.1214/21-BA1294"
+         )

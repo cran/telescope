@@ -37,6 +37,7 @@
 #'     results should be printed.
 #' @return A named list containing:
 #'   * `"Mu"`: sampled component means.
+#'   * `"Sigma2"`: sampled component component variances.
 #'   * `"Eta"`: sampled weights.
 #'   * `"S"`: sampled assignments.
 #'   * `"Nk"`: number of observations assigned to the different components, for each iteration.
@@ -54,10 +55,9 @@
 #'     N <- length(y)
 #'     r <- 1
 #'     
-#'     Mmax <- 200
+#'     M <- 200
 #'     thin <- 1
 #'     burnin <- 100
-#'     M <- Mmax/thin
 #'     Kmax <- 50  
 #'     Kinit <- 10
 #'     
@@ -89,14 +89,15 @@
 #'     K <- result$K
 #'     Kplus <- result$Kplus  
 #'     
-#'     plot(seq_along(K), K, type = "l", ylim = c(0, max(K)),
+#'     plot(K, type = "l", ylim = c(0, max(K)),
 #'          xlab = "iteration", main = "",
 #'          ylab = expression("K" ~ "/" ~ K["+"]), col = 1)
-#'     lines(seq_along(Kplus), Kplus, col = 2)
+#'     lines(Kplus, col = 2)
 #'     legend("topright", legend = c("K", expression(K["+"])),
 #'            col = 1:2, lty = 1, box.lwd = 0)
 #' }
 #' 
+
 sampleUniNormMixture <-
     function(y, S, mu, sigma2, eta, c0, g0, G0, C0_0, 
              b0, B0, M, burnin, thin, Kmax,
@@ -149,6 +150,7 @@ sampleUniNormMixture <-
     ## generating matrices for storing the draws:
     result <- list(Eta = matrix(NA_real_, M, Kmax),
                    Mu = array(NA_real_, dim = c(M, r, Kmax)),
+                   Sigma2 = array(NA_real_, dim = c(M, r, r, Kmax)),
                    Nk = matrix(NA_real_, M, Kmax),
                    S = matrix(NA_real_, M, N),
                    K = rep(NA_real_, M),
@@ -156,31 +158,20 @@ sampleUniNormMixture <-
                    mixlik = rep(0, M),
                    mixprior = rep(0, M),
                    nonnormpost = rep(0, M),
-                   nonnormpost_mode_list = vector("list", Kmax),
-                   mixlik_mode_list = vector("list", Kmax),
+                   nonnormpost_mode = vector("list", Kmax),
                    C0 = array(NA_real_, dim = c(M, r, r)),
                    e0 = rep(NA_real_, M),
                    alpha = rep(NA_real_, M),
                    acc = rep(NA_real_, M))
 
-    ## Storing the initial values
-    result$Mu[1, , 1:K_j] <- mu_j
-    result$Eta[1, 1:K_j] <- eta_j
-    result$S[1, ] <- S_j
-    result$K[1] <- K_j
-    result$Kplus[1] <- Kp_j
-    result$Nk[1, 1:K_j] <- Nk_j
-    result$e0[1] <- e0
-    result$alpha[1] <- alpha
-    result$acc[1] <- acc
+    ## Initialising the result object
     for (k in 1:Kmax) {
-        result$nonnormpost_mode_list[[k]] <- list(nonnormpost = -(10)^18)
-        result$mixlik_mode_list[[k]] <- list(mixlik = -(10)^18)
+        result$nonnormpost_mode[[k]] <- list(nonnormpost = -(10)^18)
     }
     
     ##---------------------- simulation ----------------------------------------------
     
-    m <- 2
+    m <- 1
     Mmax <- M * thin
     while (m <= Mmax || m <= burnin) {
         if (verbose && !(m%%500)) {
@@ -309,19 +300,20 @@ sampleUniNormMixture <-
         ## storing the nonnormalized posterior for having good
         ## starting points when clustering the draws in the point
         ## process repres.
-        if (((burnin == 0) && !(m%%thin)) && (result$nonnormpost[m] > result$nonnormpost_mode_list[[Kp_j]]$nonnormpost)) {
-            result$nonnormpost_mode_list[[Kp_j]] <- list(nonnormpost = result$nonnormpost[m],
-                                                         mu = mu_j[, Nk_j != 0],
-                                                         S = S_j,
-                                                         bk = bk,
-                                                         Bk = Bk,
-                                                         eta = eta_j)
+        if (((burnin == 0) && !(m%%thin)) && (result$nonnormpost[m] > result$nonnormpost_mode[[Kp_j]]$nonnormpost)) {
+            result$nonnormpost_mode[[Kp_j]] <- list(nonnormpost = result$nonnormpost[m],
+                                                    mu = mu_j[, Nk_j != 0],
+                                                    S = S_j,
+                                                    bk = bk,
+                                                    Bk = Bk,
+                                                    eta = eta_j)
         }
         
         ## intermediate step: storing the results for given S_j, Nk, K_j
         if ((burnin == 0) && !(m%%thin)) {
             ## storing the new values
             result$Mu[m/thin, , 1:K_j] <- mu_j
+            result$Sigma2[m/thin, , , 1:K_j] <- sigma2_j
             result$Eta[m/thin, 1:K_j] <- eta_j
             result$S[m/thin, ] <- S_j
             result$Nk[m/thin, 1:K_j] <- Nk_j

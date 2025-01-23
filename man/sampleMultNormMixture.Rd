@@ -101,10 +101,9 @@ y <- iris[, 1:4]
 z <- iris$Species
 r <- ncol(y)
 
-Mmax <- 50
+M <- 50
 thin <- 1
 burnin <- 0
-M <- Mmax/thin
 Kmax <- 40  
 Kinit <- 10
 
@@ -137,10 +136,10 @@ result <- sampleMultNormMixture(
 K <- result$K
 Kplus <- result$Kplus   
 
-plot(seq_along(K), K, type = "l", ylim = c(0, max(K)),
+plot(K, type = "l", ylim = c(0, max(K)),
      xlab = "iteration", main = "",
      ylab = expression("K" ~ "/" ~ K["+"]), col = 1)
-lines(seq_along(Kplus), Kplus, col = 2)
+lines(Kplus, col = 2)
 legend("topright", legend = c("K", expression(K["+"])),
        col = 1:2, lty = 1, box.lwd = 0)
 

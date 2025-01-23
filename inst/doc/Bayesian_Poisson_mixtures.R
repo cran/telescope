@@ -61,7 +61,7 @@ S <- estGibbs$S
 Nk <- estGibbs$Nk
 K <- estGibbs$K
 Kplus <- estGibbs$Kplus
-nonnormpost_mode_list <- estGibbs$nonnormpost_mode_list
+nonnormpost_mode <- estGibbs$nonnormpost_mode
 acc <- estGibbs$acc
 e0 <- estGibbs$e0
 alpha <- estGibbs$alpha 
@@ -145,7 +145,7 @@ for (i in seq_along(w)) {
 }
 
 ## -----------------------------------------------------------------------------
-Func_init <- matrix(nonnormpost_mode_list[[Kplus_hat]]$mean_muk,
+Func_init <- matrix(nonnormpost_mode[[Kplus_hat]]$mean_muk,
                     nrow = Kplus_hat)
 identified_Kplus <- identifyMixture(
     Mu_Kplus, Mu_Kplus, Eta_Kplus, S_Kplus, Func_init)

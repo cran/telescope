@@ -45,10 +45,9 @@
 #' z <- sample(1:2, N, prob = c(0.5, 0.5), replace = TRUE)
 #' y <- rpois(N, c(1, 6)[z])
 #' 
-#' Mmax <- 200
+#' M <- 200
 #' thin <- 1
 #' burnin <- 100
-#' M <- Mmax/thin
 #' 
 #' Kmax <- 50  
 #' Kinit <- 10
@@ -76,13 +75,14 @@
 #' K <- result$K
 #' Kplus <- result$Kplus
 #' 
-#' plot(seq_along(K), K, type = "l", ylim = c(0, max(K)), 
+#' plot(K, type = "l", ylim = c(0, max(K)), 
 #'      xlab = "iteration", main = "",
 #'      ylab = expression("K" ~ "/" ~ K["+"]), col = 1)
-#' lines(seq_along(Kplus), Kplus, col = 2)
+#' lines(Kplus, col = 2)
 #' legend("topright", legend = c("K", expression(K["+"])),
 #'        col = 1:2, lty = 1, box.lwd = 0)
 #' 
+
 samplePoisMixture <-
     function(y, S, mu, eta, a0, b0, h0, H0,
              M, burnin, thin, Kmax,
@@ -134,33 +134,21 @@ samplePoisMixture <-
                  mixlik = rep(0, M),
                  mixprior = rep(0, M),
                  nonnormpost = rep(0, M),
-                 nonnormpost_mode_list = vector("list", Kmax),
-                 mixlik_mode_list = vector("list", Kmax),
+                 nonnormpost_mode = vector("list", Kmax),
                  e0 = rep(NA_real_, M),
                  alpha = rep(NA_real_, M),
                  acc = rep(NA, M)
                  )
 
-  ## Initialising the result-objects
-  result$Mu[1, , 1:K_j] <- mu_j
-  result$Eta[1, 1:K_j] <- eta_j
-  result$b0[1, 1] <- b0
-  result$S[1, ] <- S_j
-  result$K[1] <- K_j
-  result$Kplus[1] <- Kp_j
-  result$Nk[1, 1:K_j] <- Nk_j
-  result$e0[1] <- e0
-  result$alpha[1] <- alpha
-  result$acc[1] <- FALSE
+  ## Initialising the result objects
   for (k in 1:Kmax) {
-    result$nonnormpost_mode_list[[k]] <- list(nonnormpost = -(10)^18)
-    result$mixlik_mode_list[[k]] <- list(mixlik = -(10)^18)
+    result$nonnormpost_mode[[k]] <- list(nonnormpost = -(10)^18)
   }
 
   ##---------------------- simulation ----------------------------------------------
 
   s <- 1
-  m <- 2
+  m <- 1
   Mmax <- M * thin
   while (m <= Mmax || m <= burnin) {
     if (verbose && !(m%%1000)) {
@@ -263,17 +251,16 @@ samplePoisMixture <-
 
     ## storing the nonnormalized posterior for having good starting
     ## points for clustering the draws in the point process repres.
-    if ((burnin == 0) && (result$nonnormpost[m] > result$nonnormpost_mode_list[[Kp_j]]$nonnormpost)) {
-        result$nonnormpost_mode_list[[Kp_j]] <- list(nonnormpost = result$nonnormpost[m],
-                                                     mu = mu_j[, Nk_j != 0],
-                                                     mean_muk = ak/bk,
-                                                     var_muk = ak/(bk^2),
-                                                     eta = eta_j)
+    if ((burnin == 0) && (result$nonnormpost[m] > result$nonnormpost_mode[[Kp_j]]$nonnormpost)) {
+        result$nonnormpost_mode[[Kp_j]] <- list(nonnormpost = result$nonnormpost[m],
+                                                mu = mu_j[, Nk_j != 0],
+                                                mean_muk = ak/bk,
+                                                var_muk = ak/(bk^2),
+                                                eta = eta_j)
     }
 
     ## storing the results
     if ((burnin == 0) && !(m%%thin)) {
-        ## storing the new values
         result$Mu[m/thin, , 1:K_j] <- mu_j
         result$Eta[m/thin, 1:K_j] <- eta_j
         result$b0[m/thin, ] <- b0

@@ -142,7 +142,7 @@ estGibbs <- sampleUniNormMixture(
     G, priorOnK, priorOnE0)
 ```
 
-The sampling function returns a named list where the sampled parameters and latent variables are contained. The list includes the component means `Mu`, the weights `Eta`, the assignments `S`, the number of observations  `Nk` assigned to components, the number of components `K`, the number of filled components `Kplus`, parameter values corresponding to the mode of the nonnormalized posterior `nonnormpost_mode_list`, the acceptance rate in the Metropolis-Hastings step when sampling $\alpha$ or $e_0$,  $\alpha$ and $e_0$. These values can be extracted for post-processing.
+The sampling function returns a named list where the sampled parameters and latent variables are contained. The list includes the component means `Mu`, the weights `Eta`, the assignments `S`, the number of observations  `Nk` assigned to components, the number of components `K`, the number of filled components `Kplus`, parameter values corresponding to the mode of the nonnormalized posterior `nonnormpost_mode`, the acceptance rate in the Metropolis-Hastings step when sampling $\alpha$ or $e_0$,  $\alpha$ and $e_0$. These values can be extracted for post-processing.
 
 ```{r}
 Mu <- estGibbs$Mu
@@ -151,7 +151,7 @@ S <- estGibbs$S
 Nk <- estGibbs$Nk
 K <- estGibbs$K
 Kplus <- estGibbs$Kplus  
-nonnormpost_mode_list <- estGibbs$nonnormpost_mode_list
+nonnormpost_mode <- estGibbs$nonnormpost_mode
 acc <- estGibbs$acc
 e0 <- estGibbs$e0
 alpha <- estGibbs$alpha  
@@ -260,7 +260,7 @@ for (i in seq_along(w)) {
 For model identification, we cluster the draws of the means where exactly $\hat{K}_+$ components were filled in the point process representation using $k$-means clustering. 
 
 ```{r}
-Func_init <- nonnormpost_mode_list[[Kplus_hat]]$mu  
+Func_init <- nonnormpost_mode[[Kplus_hat]]$mu  
 identified_Kplus <- identifyMixture(
     Mu_Kplus, Mu_Kplus, Eta_Kplus, S_Kplus, Func_init)
 ```

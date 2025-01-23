@@ -90,10 +90,9 @@ N <- 200
 z <- sample(1:2, N, prob = c(0.5, 0.5), replace = TRUE)
 y <- rpois(N, c(1, 6)[z])
 
-Mmax <- 200
+M <- 200
 thin <- 1
 burnin <- 100
-M <- Mmax/thin
 
 Kmax <- 50  
 Kinit <- 10
@@ -121,10 +120,10 @@ result <- samplePoisMixture(
 K <- result$K
 Kplus <- result$Kplus
 
-plot(seq_along(K), K, type = "l", ylim = c(0, max(K)), 
+plot(K, type = "l", ylim = c(0, max(K)), 
      xlab = "iteration", main = "",
      ylab = expression("K" ~ "/" ~ K["+"]), col = 1)
-lines(seq_along(Kplus), Kplus, col = 2)
+lines(Kplus, col = 2)
 legend("topright", legend = c("K", expression(K["+"])),
        col = 1:2, lty = 1, box.lwd = 0)
 

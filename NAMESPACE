@@ -1,7 +1,9 @@
 export(priorOnE0_spec, priorOnAlpha_spec, priorOnK_spec,
        sampleLCA, samplePoisMixture,
        sampleMultNormMixture, sampleUniNormMixture,
-       identifyMixture, plotBubble, plotScatter)
+       sampleLCAMixture,
+       identifyMixture, identifyLCAMixture,
+       plotBubble, plotScatter)
 importFrom("grDevices", "devAskNewPage", "palette", "rainbow", "x11")
 importFrom("graphics", "axis", "boxplot", "contour", "hist", "image",
            "mtext", "par", "persp", "points", "symbols", "title")

@@ -1,0 +1,474 @@
+---
+title: Bayesian Mixture of Latent Class Analysis Models with the Telescoping Sampler
+author: Gertraud Malsiner-Walli, Bettina Grün, Sylvia Frühwirth-Schnatter
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Bayesian Mixture of Latent Class Analysis Models with the Telescoping Sampler}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+bibliography: telescope.bib 
+---
+
+
+# Introduction
+
+In this vignette we fit a Bayesian mixture where each component distribution is a latent class analysis (LCA) model and where a prior on the number of components $K$ is specified. We use a synthetic multivariate binary data set which contains 30 binary variables and is composed of three groups. Within each group the variables are dependent. For the detailed simulation setting see @Malsiner+Gruen+Fruehwirth:2024. We use the prior specification and the telescoping sampler for performing MCMC sampling as proposed in @Malsiner+Gruen+Fruehwirth:2024.
+
+First, we load the package.
+
+```{r}
+library("telescope")
+```
+
+# Data
+
+We read in the data and extract the variables used for clustering in `y` as well as the group memberships in variable `z`. 
+
+```{r}
+data("SimData", package = "telescope")
+y <- as.matrix(SimData[, 1:30])
+z <- SimData[, 31]
+```
+
+There are `r ncol(y)` clustering variables for `r nrow(y)` observations.
+```{r}
+dim(y)
+```
+
+The frequency table of the group membership variable indicates that the three groups are similar in size.
+```{r}
+table(z)
+```
+
+We store the dimension of the data set and determine the number of categories of each variable.
+
+```{r}
+N <- nrow(y)
+r <- ncol(y)
+cat <- apply(y, 2, max)
+```
+
+# Model specification
+
+The following data model and hierarchical prior structure are specified for modeling the multivariate categorical observations $\mathbf{y}_1,\ldots,\mathbf{y}_N$:
+
+\begin{aligned}
+p(\mathbf{y}_i | K, \boldsymbol{\Theta}_K, \boldsymbol{\eta}_K) &= \sum_{k=1}^{K} \eta_k p_k(\mathbf{y}_i | \boldsymbol{\theta}_k)\qquad i=1,\ldots,N\\
+%
+p_k(\mathbf{y}_i | \boldsymbol{\theta}_k) &= \sum_{l=1}^{L} w_{kl} \prod_{j=1}^r\prod_{d=1}^{D_j} \pi_{kl,jd}^{I\{y_{ij} = d\}}\qquad i=1,\ldots,N\\
+%
+K \sim p(K)&\\
+%
+\boldsymbol{\eta} \sim \mathcal{D}(e_0)& \qquad \text{with either } e_0 \text{ fixed, or } e_0\sim p(e_0) \text {, or } e_0=\frac{\alpha}{K}, \text{ with }   \alpha \text{ fixed or } \alpha \sim p(\alpha),\\
+%
+\mathbf{w} \sim \mathcal{D}(d_0)&\qquad \text{with } d_0 \text{ fixed}\\
+%
+\boldsymbol{\pi}_{kl,j} \sim \mathcal{D}(\boldsymbol{\alpha}_{k,j})& \qquad \text{where }\boldsymbol{\alpha}_{k,j} = \boldsymbol{\mu}_{k,j} \phi_{k,j} + \alpha_{00}\mathbf{1}, \quad l=1,\ldots,L,  \quad k=1,\ldots,K,  \quad j=1,\ldots,r\\
+%
+\boldsymbol{\mu}_{k,j} \sim \mathcal{D}(a_\mu)& \qquad k=1,\ldots,K,  \quad j=1,\ldots,r\\
+%
+\phi_{k,j} | b_{\phi_j} \sim \mathcal{G}^{-1}(a_\phi, b_{\phi_j})& \qquad k=1,\ldots,K,  \quad j=1,\ldots,r\\
+b_{\phi_j} \sim \mathcal{G}(c_\phi, d_\phi)& \qquad j =1,\ldots,r.
+\end{aligned}
+Note that the parameters of the Dirichlet prior on the component and class weights are called $e_0$ and $d_0$ respectively. For more details see also @Malsiner+Gruen+Fruehwirth:2024.
+
+# Specification of the MCMC simulation and prior parameters 
+
+For MCMC sampling we need to specify `Mmax`, the maximum number of iterations, `thin`, the thinning imposed to reduce auto-correlation in the chain by only recording every `thin`ed observation, and `burnin`, the number of burn-in iterations not recorded.
+
+```{r}
+Mmax <- 300
+thin <- 1
+burnin <- 100
+```
+
+The specifications of `Mmax` and `thin` imply `M`, the number of recorded observations.
+
+```{r}
+M <- Mmax/thin
+```
+
+We specify with `Kmax` the maximum number of components possible during sampling. `Kinit` denotes the initial number of filled components. 
+
+```{r}
+Kmax <- 50  
+Kinit <- 10
+```
+
+We specify `L` the number of subcomponents (classes) forming each component, i.e., the number of components in the LCA model.
+
+```{r}
+L <- 2
+```
+This number is assumed to be fixed and the same across all components. 
+
+
+For the mixture weights on the higher level we use a dynamic specification.
+```{r}
+G <- "MixDynamic"
+```
+For a static specific one would need to use `"MixStatic"`.
+
+For the dynamic setup, we specify the gamma  distribution $G(1, 2)$ as the prior on `alpha`.
+```{r}
+priorOnAlpha <- priorOnAlpha_spec("gam_1_2")
+```
+
+We need to select the prior on `K` on the higher level.  We specify the prior $K-1 \sim BNB(1, 4, 3)$ as suggested in @Malsiner+Gruen+Fruehwirth:2024. 
+
+```{r}
+priorOnK <- priorOnK_spec("BNB_143")
+```
+
+For the lower level, the standard Dirichlet prior with parameter equal to 1 is specified for the class weights within each component.
+
+```{r}
+d0 <- 1  
+```
+
+Now, we specify the component-specific priors.  We use a symmetric Dirichlet prior for the occurrence probabilities $\boldsymbol{\pi}_{k,j} \sim \mathcal{D}(a_0)$ for each variable with $a_0=1$ inducing a uniform prior.
+
+```{r}
+a_mu <- rep(20, sum(cat)) 
+mu_0 <- matrix(rep(rep(1/cat, cat), Kinit),
+               byrow = TRUE, nrow = Kinit)
+
+c_phi <- 30
+d_phi <- 1
+b_phi <- rep(10, r)
+
+a_phi <- rep(1, r)  
+phi_0 <- matrix(cat, Kinit, r, byrow = TRUE)
+
+## regularizing constant
+a_00 <- 0.05    
+
+## proposal standard deviations for MH steps for sampling mu and phi, and regularizing constant eps to bound the Dirichlet proposal mu away from the boundary of the simplex
+s_mu <- 2  
+s_phi <- 2 
+eps <- 0.01
+```
+
+We obtain an initial partition `S_0` and initial component weights `eta_0` using  `kmeans()`.
+
+```{r}
+set.seed(1234)
+cl_y <- kmeans(y, centers = Kinit, nstart = 100, iter.max = 50)
+S_0 <- cl_y$cluster
+eta_0 <- cl_y$size/N
+```
+
+Within each component we assign observations to classes and store the class memberships in 
+`I_0`.
+
+```{r}
+I_0 <- rep(1L, N)
+if (L > 1) {
+  for (k in 1:Kinit) {
+    cl_size <- sum(S_0 == k)
+    I_0[S_0 == k] <- rep(1:L, length.out = cl_size)
+  }
+} 
+```
+
+We determine initial values `pi_0` for the occurrence probabilities `pi_klj_0` based on initial partitions `S_0` and `I_0`.
+
+```{r}
+index <- c(0, cumsum(cat))
+low <- (index + 1)[-length(index)]
+up <- index[-1]
+
+pi_km <- array(NA_real_, dim = c(Kinit, L, sum(cat)))
+rownames(pi_km) <- paste0("k_", 1:Kinit)
+for (k in 1:Kinit) {
+    for (l in 1:L) {
+        index <- (S_0 == k) & (I_0 == l)
+        for (j in 1:r) {
+            pi_km[k, l, low[j]:up[j]] <- tabulate(y[index, j], cat[j]) / sum(index)
+        }
+    }
+}
+pi_0 <- pi_km 
+```
+
+# MCMC sampling
+
+Using this prior specification as well as initialization and MCMC settings, we draw samples from the posterior using the telescoping sampler. 
+
+The first two arguments of the sampling function are the data (`y` is the data matrix where categories are coded as numbers) followed by the initial partitions (`S_0`, `I_0`) and the initial parameter values for component-specific occurrence probabilities and weights (`eta_0`,`pi_0`, ` mu_0`, `phi_0`). The next arguments correspond to the hyperparameters  of the prior setup (`a_00`, `a_mu`, `a_phi`, `b_phi`, `c_phi`, `d_phi`).  Then the setting for the MCMC sampling is specified using `M`, `burnin`, `thin` and `Kmax` as well as the standard deviations for the proposals in the Metropolis-Hastings steps when sampling $\mu$ and $\phi$ (`s_mu`, `s_phi`).
+Finally the prior specification for the component weights and the prior on the number of components are given (`G`,  `priorOnAlpha`, `d0`, `priorOnK`).
+
+```{r}
+result <- sampleLCAMixture(y, S_0, L, 
+                           pi_0, eta_0, mu_0, phi_0,
+                           a_00, a_mu, a_phi, b_phi, c_phi, d_phi,
+                           M, burnin, thin, Kmax,
+                           s_mu, s_phi, eps,
+                           G, priorOnAlpha, d0, priorOnK)
+```
+
+The sampling function returns a named list where the sampled parameters and latent variables are contained. The list includes 
+the weights `Eta`,
+the assignments `S`,
+the number of components `K`, the number of filled components `Kplus`,
+the number of observations  `Nk`  and `Nl` assigned to components and classes within components respectively,
+the acceptance rate in the Metropolis-Hastings step when sampling $\alpha$ or $e_0$,  $\alpha$ and $e_0$, 
+the central component occurrence probabilities `Mu`, the precisions `Phi`, parameters `b_phi`,
+the acceptance rate in the Metropolis-Hastings step when sampling $\boldsymbol{\mu}_{k,j}$ or $\boldsymbol{\phi}_{k,j}$. 
+
+Finally, for post-processing the draws,  parameter values corresponding to the mode of the non-normalized posterior `nonnormpost_mode` and the functional `P_k` which are weighted component occurrence probabilities are returned.
+These values can be extracted for post-processing.
+
+```{r}
+Eta <- result$Eta
+S <- result$S
+K <- result$K
+Kplus <- result$Kplus
+
+Nk <- result$Nk
+Nl <- result$Nl
+acc <- result$acc
+e0 <- result$e0
+alpha <- result$alpha
+
+Mu <- result$Mu
+Phi <- result$Phi
+B_phi <- result$B_phi
+acc_mu <- result$acc_mu
+acc_phi <- result$acc_phi
+nonnormpost_mode <- result$nonnormpost_mode
+Pi_k <- result$Pi_k
+```
+
+# Convergence diagnostics of the run
+
+We inspect the acceptance rate when sampling $\alpha$ and the trace plot of the sampled `alpha`:
+```{r fig.height = 5, fig.width = 7}
+acc <- sum(acc)/M
+acc
+plot(1:length(alpha), alpha, type = "l", 
+     ylim = c(0, max(alpha)), 
+     xlab = "iterations", ylab = expression(alpha))
+```
+
+We further assess the distribution of the sampled $\alpha$ by inspecting a histogram as well determining the mean and some quantiles. 
+
+```{r fig.height = 5, fig.width = 7}
+hist(alpha, freq = FALSE, breaks = 50)
+mean(alpha)
+quantile(alpha, probs = c(0.25, 0.5, 0.75))
+```
+
+In addition we plot the histogram of the induced $e_0$ as well as their mean and some quantiles.
+
+```{r fig.height = 5, fig.width = 7}
+hist(e0, freq = FALSE, breaks = 50)
+mean(e0)
+quantile(e0, probs = c(0.25, 0.5, 0.75))
+```
+
+We inspect the sampled component mean occurrence distributions `mu_kj`.
+
+The acceptance rate for the first component and the first variable is given by:
+
+```{r}
+k <- 1  # component
+j <- 1  # variable
+sum(acc_mu[, k, j])/M
+```
+
+The posterior distributions of the occurrence probabilities may be
+visualized using a box plot. We create this box plot for the first
+component, all variables and the second category.
+
+```{r fig.height = 5, fig.width = 7}
+boxplot(Mu[, k, seq(2, 2*r, 2)], xlab = "mu_j")
+```
+
+In addition a trace plot may be used to inspect the sampled values for
+$\mu_{kjd}$. We do so for the first component, the first variable and
+the second category.
+
+```{r fig.height = 5, fig.width = 7}
+j <- 1  # variable
+d <- 2  # category
+k <- 1  # component
+plot(Mu[, k, low[j]+(d-1)], type = "l", 
+     ylab = paste0("mu_jkd, j=", j, ",d=", d," (k=", k, ")"))
+```
+
+In the same way, we inspect the sampled precision parameter `phi_kj`
+based on acceptance rate, box plots and trace plots.
+
+```{r fig.height = 5, fig.width = 7}
+k <- 1  # component
+j <- 1  # variable
+sum(acc_phi[, k, j])/M
+
+boxplot(Phi[, k, ], xlab = "phi_j",
+        ylim = quantile(Phi[, k, ], c(0, 0.95)))
+
+j <- 3  # variable
+k <- 1  # component
+plot(Phi[, k, j], type = "l",
+     ylab = paste0("phi_jkd, j=", j, ", (k=", k, ")"))
+```
+
+To further assess convergence, we also inspect the trace plots for the number of components $K$ and the number of filled components $K_+$.
+
+```{r fig.height = 5, fig.width = 7}
+plot(K, type = "l", ylim = c(0, max(K)), 
+     xlab = "iteration", main = "", ylab = "count",
+     lwd = 0.5, col = "grey")
+points(Kplus, type = "l", col = "red3",
+       lwd = 2, lty = 1)
+legend("topright", legend = c("K", "K+"), col = c("grey", "red3"),
+       lwd = 2)
+```
+
+The number of observations `Nl` assigned to subcomponents $l$ of component $k$ can also be inspected, e.g., for the third component.
+
+```{r fig.height = 5, fig.width = 7}
+k <- 3   # component
+matplot(Nl[seq(100, M, 10), ((k-1)*L+1):(k*L)],
+        type = "l", ylab = "Nl")
+```
+
+# Identification of the mixture model 
+
+## Step 1: Estimate $K_+$ and $K$
+
+We determine the posterior distribution of the number of filled components $K_+$, approximated using the telescoping sampler.
+We visualize the distribution of $K_+$ using a bar plot.
+
+```{r fig.height = 5, fig.width = 7}
+p_Kplus <- tabulate(Kplus, nbins = max(Kplus))/M 
+barplot(p_Kplus/sum(p_Kplus), xlab = expression(K["+"]), names = 1:length(p_Kplus),
+        ylab = expression("p(" ~ K["+"] ~ "|" ~ bold(y) ~ ")"))
+```
+
+The distribution of $K_+$ is also characterized using the 1st and 3rd quartile as well as the median.
+
+```{r}
+quantile(Kplus, probs = c(0.25, 0.5, 0.75))
+```
+
+We obtain a point estimate for $K_+$ by taking the mode and determine the number of MCMC draws where exactly $K_+$ components were filled.
+
+```{r}
+Kplus_hat <- which.max(p_Kplus)
+Kplus_hat
+M0 <- sum(Kplus == Kplus_hat)
+M0          
+```
+
+We also determine the posterior distribution of the number of components $K$ directly drawn using the telescoping sampler.
+
+```{r}
+p_K <- tabulate(K, nbins = max(K))/M
+quantile(K, probs = c(0.25, 0.5, 0.75))
+```
+
+
+```{r fig.height = 5, fig.width = 7}
+barplot(p_K/sum(p_K), names = 1:length(p_K), xlab = "K", 
+        ylab = expression("p(" ~ K ~ "|" ~ bold(y) ~ ")"))
+which.max(tabulate(K, nbins = max(K)))   
+```
+
+## Step 2: Extracting the draws with exactly $\hat{K}_+$ non-empty components
+
+First we select those draws where the number of filled groups was exactly $\hat{K}_+$:
+
+```{r}
+index <- Kplus == Kplus_hat
+Nk[is.na(Nk)] <- 0
+Nk_Kplus <- (Nk[Kplus == Kplus_hat, ] > 0)
+```
+
+In the following we extract the cluster occurrence probabilities, the data cluster sizes and the cluster assignments for the draws where exactly $\hat{K}_+$ components were filled.
+
+```{r}
+index <- Kplus == Kplus_hat
+Nk[is.na(Nk)] <- 0
+Nk_Kplus <- (Nk[Kplus == Kplus_hat, ] > 0)
+
+Pi_k_inter <- Pi_k[index,,] 
+Pi_k_Kplus <- array(0, dim = c(M0, Kplus_hat, sum(cat)))  
+for (j in 1:sum(cat)) {
+  Pi_k_Kplus[, , j] <- Pi_k_inter[, , j][Nk_Kplus]
+}
+
+Mu_inter <- Mu[index, , ]       
+Mu_Kplus <- array(0, dim = c(M0, Kplus_hat, sum(cat)))  
+for (j in 1:sum(cat)) {
+  Mu_Kplus[, , j] <- Mu_inter[, , j][Nk_Kplus]
+}
+
+Phi_inter <- Phi[index, , ]
+Phi_Kplus <- array(0, dim = c(M0, Kplus_hat, r))
+for (j in 1:r) {
+  Phi_Kplus[, , j] <- Phi_inter[, , j][Nk_Kplus]
+}
+
+Eta_inter <- Eta[index, ]
+Eta_Kplus <- matrix(Eta_inter[Nk_Kplus], ncol = Kplus_hat)
+
+v <- which(index)
+S_Kplus <- matrix(0, M0, N)
+for (i in seq_along(v)) {
+  m <- v[i]
+  perm_S <- rep(0, Kmax)
+  perm_S[Nk[m, ] != 0] <- 1:Kplus_hat
+  S_Kplus[i, ] <- perm_S[S[m, ]]
+}
+
+```
+
+## Step 3: Clustering and relabeling of the MCMC draws 
+
+For model identification, we cluster the draws of the cluster location probabilities `Pi_k_Kplus` of exactly $\hat{K}_+$ filled components in the point process representation using $k$-means clustering. We use the obtained unique labeling of the draws to reorder the sampled parameters `Mu_Kplus`, `Phi_Kplus`, ` Eta_Kplus` and the allocations `S_Kplus`.
+
+```{r}
+Func_init <- nonnormpost_mode[[Kplus_hat]]$pi_k
+identified_Kplus <- identifyLCAMixture(
+    Pi_k_Kplus, Mu_Kplus, Phi_Kplus, Eta_Kplus, S_Kplus, Func_init)
+```
+
+We inspect the non-permutation rate to assess how well separated the data clusters are and thus how easily one can obtain a suitable relabeling of the draws. Low values of the non-permutation rate, i.e., close to zero, indicate that the solution can be easily identified pointing to a good clustering solution being obtained. 
+
+```{r}
+identified_Kplus$non_perm_rate
+```
+
+## Step 4: Estimating data cluster specific parameters and determining the final partition 
+
+The relabeled draws are also returned which can be used to determine posterior mean values for data cluster specific parameters. 
+```{r}
+colMeans(identified_Kplus$Eta)
+```
+
+The final partition is obtained by assigning each observation to the group where it was assigned most frequently during sampling.
+
+```{r}
+z_sp <- apply(identified_Kplus$S, 2,
+              function(x) which.max(tabulate(x, Kplus_hat)))
+table(z_sp)
+library("mclust")
+classError(z_sp, z)$errorRate
+adjustedRandIndex(z, z_sp)
+```
+
+## Step 4: Visualizing the posterior component occurrence and precision distributions mu\_k and  phi\_j.
+
+```{r fig.height = 5, fig.width = 7}
+k <- 1  # component
+boxplot(identified_Kplus$Mu[, k, seq(2, 2*r, 2)],
+        ylab = "mu_j")
+boxplot(identified_Kplus$Phi[, k, ], ylab = "phi_j",
+        ylim = quantile(identified_Kplus$Phi[, k, ], c(0, 0.95)))
+```
+
+# References
+
+
